@@ -1,65 +1,213 @@
-import Image from "next/image";
+import { readSnapshot, type Snapshot } from "@/lib/snapshot";
+import { fmtDollars, fmtDuration, fmtRelative, fmtTokens } from "@/lib/format";
 
-export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+export const revalidate = 30;
+
+export default async function DashboardPage() {
+  const { snapshot, stale } = await readSnapshot();
+
+  if (!snapshot) {
+    return (
+      <main className="mx-auto max-w-6xl p-6">
+        <Banner level="red" reason="no snapshot in KV — VPS pusher hasn't written yet" />
       </main>
+    );
+  }
+
+  const effectiveLevel = stale ? "red" : snapshot.status.level;
+  const effectiveReason = stale
+    ? `snapshot stale (last updated ${fmtRelative(snapshot.updated_at)})`
+    : snapshot.status.reason;
+
+  return (
+    <main className="mx-auto max-w-6xl p-6 space-y-6">
+      <header className="flex items-baseline justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">clawwatch</h1>
+        <div className="text-xs text-zinc-500">
+          host: {snapshot.host} · updated {fmtRelative(snapshot.updated_at)}
+        </div>
+      </header>
+
+      <Banner level={effectiveLevel} reason={effectiveReason} />
+
+      <SpendPanel snapshot={snapshot} />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <AlertsPanel alerts={snapshot.alerts} />
+        <SessionsPanel sessions={snapshot.sessions} />
+      </div>
+
+      <ToolCallsPanel calls={snapshot.tool_calls} />
+
+      <footer className="text-xs text-zinc-500 pt-4">
+        Dollar values are estimated client-side from <code>data.usage</code> × pricing rates. Real
+        bill comes from the provider.
+      </footer>
+    </main>
+  );
+}
+
+function Banner({
+  level,
+  reason,
+}: {
+  level: "green" | "yellow" | "red";
+  reason: string;
+}) {
+  const styles = {
+    green: "bg-emerald-50 border-emerald-200 text-emerald-900",
+    yellow: "bg-amber-50 border-amber-200 text-amber-900",
+    red: "bg-rose-50 border-rose-200 text-rose-900",
+  }[level];
+
+  const dot = {
+    green: "bg-emerald-500",
+    yellow: "bg-amber-500",
+    red: "bg-rose-500",
+  }[level];
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 flex items-center gap-3 ${styles}`}>
+      <span className={`inline-block w-2.5 h-2.5 rounded-full ${dot}`} />
+      <div>
+        <div className="font-medium capitalize">{level}</div>
+        <div className="text-sm opacity-80">{reason}</div>
+      </div>
     </div>
+  );
+}
+
+function SpendPanel({ snapshot }: { snapshot: Snapshot }) {
+  const cells = [
+    { label: "Last hour", b: snapshot.spend.last_hour },
+    { label: "Today", b: snapshot.spend.today },
+    { label: "Last 7d", b: snapshot.spend.last_7d },
+  ];
+  return (
+    <section>
+      <h2 className="text-sm font-medium text-zinc-500 mb-2">Spend (estimated)</h2>
+      <div className="grid grid-cols-3 gap-3">
+        {cells.map((c) => (
+          <div key={c.label} className="rounded-lg border border-zinc-200 p-4">
+            <div className="text-xs text-zinc-500">{c.label}</div>
+            <div className="text-2xl font-semibold mt-1">~{fmtDollars(c.b.dollars)}</div>
+            <div className="text-xs text-zinc-500 mt-1">{fmtTokens(c.b.tokens)} tokens</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AlertsPanel({ alerts }: { alerts: Snapshot["alerts"] }) {
+  return (
+    <section>
+      <h2 className="text-sm font-medium text-zinc-500 mb-2">
+        Recent alerts ({alerts.length})
+      </h2>
+      <div className="rounded-lg border border-zinc-200 overflow-hidden">
+        {alerts.length === 0 ? (
+          <div className="p-4 text-sm text-zinc-500">No alerts yet.</div>
+        ) : (
+          <ul className="divide-y divide-zinc-200">
+            {alerts.map((a, i) => (
+              <li key={`${a.fired_at}-${i}`} className="p-3 text-sm">
+                <div className="flex justify-between items-baseline gap-2">
+                  <span className="font-mono text-xs px-1.5 py-0.5 bg-zinc-100 rounded">
+                    {a.rule}
+                  </span>
+                  <span className="text-xs text-zinc-500">{fmtRelative(a.fired_at)}</span>
+                </div>
+                <div className="mt-1 text-zinc-700 truncate">{a.summary}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SessionsPanel({ sessions }: { sessions: Snapshot["sessions"] }) {
+  return (
+    <section>
+      <h2 className="text-sm font-medium text-zinc-500 mb-2">
+        Active sessions ({sessions.length})
+      </h2>
+      <div className="rounded-lg border border-zinc-200 overflow-hidden">
+        {sessions.length === 0 ? (
+          <div className="p-4 text-sm text-zinc-500">No active sessions.</div>
+        ) : (
+          <ul className="divide-y divide-zinc-200">
+            {sessions.map((s) => (
+              <li key={s.id} className="p-3 text-sm">
+                <div className="flex justify-between items-baseline gap-2">
+                  <span className="font-mono text-xs truncate">{s.id}</span>
+                  <span className="text-xs text-zinc-500">{fmtRelative(s.last_event_at)}</span>
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  {s.model} · {fmtTokens(s.tokens_total)} tokens · ~{fmtDollars(s.dollars_total)}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ToolCallsPanel({ calls }: { calls: Snapshot["tool_calls"] }) {
+  const statusColor = (s: string) =>
+    s === "ok"
+      ? "text-emerald-700 bg-emerald-50"
+      : s === "error"
+      ? "text-rose-700 bg-rose-50"
+      : s === "runaway"
+      ? "text-amber-700 bg-amber-50"
+      : "text-zinc-700 bg-zinc-50";
+
+  return (
+    <section>
+      <h2 className="text-sm font-medium text-zinc-500 mb-2">
+        Tool calls ({calls.length})
+      </h2>
+      <div className="rounded-lg border border-zinc-200 overflow-hidden">
+        {calls.length === 0 ? (
+          <div className="p-4 text-sm text-zinc-500">No tool calls.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-zinc-50 text-xs text-zinc-500">
+              <tr>
+                <th className="text-left p-2 font-medium">When</th>
+                <th className="text-left p-2 font-medium">Tool</th>
+                <th className="text-left p-2 font-medium">Duration</th>
+                <th className="text-left p-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200">
+              {calls.map((c) => (
+                <tr key={c.id}>
+                  <td className="p-2 text-xs text-zinc-500 whitespace-nowrap">
+                    {c.started_at ? fmtRelative(c.started_at) : "—"}
+                  </td>
+                  <td className="p-2 font-mono text-xs">{c.tool}</td>
+                  <td className="p-2 text-xs">{fmtDuration(c.duration_ms)}</td>
+                  <td className="p-2">
+                    <span
+                      className={`text-xs font-medium px-1.5 py-0.5 rounded ${statusColor(
+                        c.status
+                      )}`}
+                    >
+                      {c.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
   );
 }
