@@ -40,8 +40,9 @@ export default async function DashboardPage() {
       <ToolCallsPanel calls={snapshot.tool_calls} />
 
       <footer className="text-xs text-zinc-500 pt-4">
-        Dollar values are estimated client-side from <code>data.usage</code> × pricing rates. Real
-        bill comes from the provider.
+        Dollar values come from OpenAI&apos;s Costs API (real billed spend, includes reasoning
+        tokens). Token counts come from OpenClaw trajectory data and exclude reasoning tokens —
+        treat them as a visibility signal, not a billing one.
       </footer>
     </main>
   );
@@ -85,13 +86,21 @@ function SpendPanel({ snapshot }: { snapshot: Snapshot }) {
   ];
   return (
     <section>
-      <h2 className="text-sm font-medium text-zinc-500 mb-2">Spend (estimated)</h2>
+      <h2 className="text-sm font-medium text-zinc-500 mb-2">Spend</h2>
       <div className="grid grid-cols-3 gap-3">
         {cells.map((c) => (
           <div key={c.label} className="rounded-lg border border-zinc-200 p-4">
             <div className="text-xs text-zinc-500">{c.label}</div>
-            <div className="text-2xl font-semibold mt-1">~{fmtDollars(c.b.dollars)}</div>
-            <div className="text-xs text-zinc-500 mt-1">{fmtTokens(c.b.tokens)} tokens</div>
+            <div className="text-2xl font-semibold mt-1">
+              {c.b.dollars_real == null ? (
+                <span className="text-zinc-400">—</span>
+              ) : (
+                fmtDollars(c.b.dollars_real)
+              )}
+            </div>
+            <div className="text-xs text-zinc-500 mt-1">
+              {fmtTokens(c.b.tokens)} tokens visible
+            </div>
           </div>
         ))}
       </div>
@@ -146,7 +155,7 @@ function SessionsPanel({ sessions }: { sessions: Snapshot["sessions"] }) {
                   <span className="text-xs text-zinc-500">{fmtRelative(s.last_event_at)}</span>
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  {s.model} · {fmtTokens(s.tokens_total)} tokens · ~{fmtDollars(s.dollars_total)}
+                  {s.model} · {fmtTokens(s.tokens_total)} tokens visible
                 </div>
               </li>
             ))}

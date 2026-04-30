@@ -2,7 +2,7 @@ import { Redis } from "@upstash/redis";
 
 export type SpendBucket = {
   tokens: number;
-  dollars: number;
+  dollars_real: number | null;
   since?: string;
 };
 
@@ -28,7 +28,6 @@ export type SessionRow = {
   last_event_at: string;
   model: string;
   tokens_total: number;
-  dollars_total: number;
 };
 
 export type Snapshot = {
